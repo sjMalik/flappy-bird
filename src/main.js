@@ -26,6 +26,8 @@ let birdFrames = ['bird_1', 'bird_2', 'bird_3']; // The frames of the bird
 let bird;
 let birdDirection = 1; // The direction of the bird
 let base;
+let gameStart = false; // Flag to check if the game has started
+let gameOver = false; // Flag to check if the game is over
 
 function preload() {
   this.load.image('background', 'assets/background.png');
@@ -34,6 +36,9 @@ function preload() {
   this.load.image('bird_3', 'assets/redbird-upflap.png');
   this.load.image('base', 'assets/base.png');
   this.load.image('piller', 'assets/pipe-red.png');
+  this.load.image('startGame', 'assets/start_game.png');
+  this.load.image('gameOver', 'assets/label_game_over.png');
+  this.load.image('resumeButton', 'assets/button_resume.png');
 }
 
 function create() {
@@ -42,13 +47,30 @@ function create() {
   background.setScale(2); // Scale the background by 2
   background.setOrigin(0, 0); // Set the origin to the top left corner
 
-  bird = this.add.sprite(game.config.width / 2, game.config.height / 2, 'bird_1');
-  // Add mouse event to the bird
-  this.input.on('pointerdown', function (pointer) {
-    bird.y -= 50; // Move the bird up by 50 pixels
-    birdDirection = -1; // Set the direction to up
-  }
-  );
+  // Add the start game image
+  let startGameImage = this.add.image(game.config.width / 2, game.config.height / 2, 'startGame');
+  startGameImage.setOrigin(0.5, 0.5); // Set the origin to the center
+  startGameImage.setInteractive(); // Make the image interactive
+  startGameImage.on('pointerdown', () => {
+    startGameImage.destroy(); // Destroy the start game image when clicked
+    bird.setVisible(true); // Show the bird
+    gameStart = true; // Set the game start flag to true
+
+    // Create a piller every 2 seconds
+    this.time.addEvent({
+      delay: 2000,
+      callback: () => {
+        if (gameOver) {
+          return; // If the game is over, don't create more pillers
+        }
+        createPiller(); // Call the createPiller function
+      },
+      loop: true
+    });
+  })
+
+  bird = this.physics.add.sprite(game.config.width / 2, game.config.height / 2, 'bird_1'); // Create the bird sprite
+  bird.setVisible(false); // Hide the bird initially
 
 
   // Load the base
@@ -76,39 +98,88 @@ function create() {
       }
     }
     );
+
+    // Add collision detection between the bird and the piller
+    this.physics.add.overlap(bird, piller, hanleCollision, null, this);
   }
 
-  // Create a piller every 2 seconds
-  this.time.addEvent({
-    delay: 2000,
-    callback: createPiller,
-    loop: true
-  });
+  // Handle collision between the bird and the piller
+  const hanleCollision = () => {
+    gameOver = true; // Set the game over flag to true
+    bird.setTint(0xff0000); // Set the tint to red
+    bird.setVelocity(0, 0); // Stop the bird
+    bird.body.setGravityY(0); // Stop the gravity
+    this.physics.pause(); // Pause the physics
+
+    // Show the game over image
+    let gameOverImage = this.add.image(game.config.width / 2, game.config.height / 2, 'gameOver');
+    gameOverImage.setOrigin(0.5, 0.5); // Set the origin to the center
+    gameOverImage.setScale(2);
+
+    // Add the resume button
+    let resumeButton = this.add.image(game.config.width / 2, game.config.height - 100, 'resumeButton');
+    resumeButton.setOrigin(0.5, 2); // Set the origin to the center
+    resumeButton.setScale(3); // Scale the button
+    resumeButton.setInteractive(); // Make the button interactive
+
+    resumeButton.on('pointerdown', () => {
+      resumeButton.destroy(); // Destroy the resume button when clicked
+      gameOverImage.destroy(); // Destroy the game over image
+      resumeGame(); // Call the resume game function
+    }
+    );
+    // 
+  }
+
+  // Add collision detection between the bird and the base
+  this.physics.add.collider(bird, base, hanleCollision, null, this); // Handle collision with the base
+
+  bird.body.onWorldBounds = true; // Enable world bounds
+  this.physics.world.on('worldbounds', function (body) {
+    if (body.gameObject === bird) {
+      handleCollision(); // Call the collision handler if the bird goes out of bounds
+    }
+  }
+  );
+
+  const resumeGame = () => {
+    gameStart = false; // Set the game start flag to false
+    gameOver = false; // Set the game over flag to false
+    bird.setActive(false);
+    this.scene.restart(); // Restart the scene
+  }
 }
 
 function update() {
+  if (!gameStart || gameOver) {
+    // If the game hasn't started or is over, don't update the game
+    return; // Don't update if the game hasn't started
+  }
   // Update the background position to create a scrolling effect
   background.tilePositionX += 0.5; // Move the background to the right by 0.5 pixels
 
-  // Gravity effect to make the bird fall
-  bird.y += 2; // Move the bird down by 2 pixels
-  if (bird.y + bird.height / 2 > game.config.height - base.height) {
-    bird.y = game.config.height - base.height - bird.height / 2; // Stop the bird at the base
-  }
+  if (bird.active) {
+    // apply gravity-like effect
+    bird.body.setVelocityY(bird.body.velocity.y + 10); // Set the vertical velocity of the bird
+    // prevent bird from falling below the base
+    let baseTop = game.config.height - base.height; // Get the top position of the base
+    if (bird.y + bird.height / 2 > baseTop) {
+      bird.y = baseTop - bird.height / 2; // Set the bird's position to the top of the base
+      bird.body.setVelocityY(0); // Stop the bird's vertical velocity
+    }
 
-  // Go up when the space key is pressed
-  const spaceKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
-  if (spaceKey.isDown) {
-    bird.y -= 4; // Move the bird up by 4 pixels
-    birdDirection = -1; // Set the direction to up
-  } else {
-    birdDirection = 1; // Set the direction to down
-  }
+    // Go up when the space key is pressed
+    const spaceKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+    if (spaceKey.isDown || this.input.activePointer.isDown) {
+      bird.body.setVelocityY(-200); // Move the bird up
+      birdDirection = -1; // Set the direction to up
+    }
 
-  //Animate the bird by changing the frame every 10 frames
-  birdFrame += 0.1; // Increase the frame counter
-  if (birdFrame >= birdFrames.length) {
-    birdFrame = 0;
+    //Animate the bird by changing the frame every 10 frames
+    birdFrame += 0.1; // Increase the frame counter
+    if (birdFrame >= birdFrames.length) {
+      birdFrame = 0;
+    }
+    bird.setTexture(birdFrames[Math.floor(birdFrame)]); // Change the bird frame
   }
-  bird.setTexture(birdFrames[Math.floor(birdFrame)]); // Change the bird frame
 }
